@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dynamic Product Form</title>
+    <style>
+        :root{--primary:#007bff;--bg:#f7f9fc;--card:#fff}
+        body{font-family:Inter, Arial, sans-serif;background:var(--bg);margin:0;padding:20px}
+        .container{max-width:900px;margin:20px auto}
+        .card{background:var(--card);padding:20px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.08)}
+        h1{margin:0 0 10px;font-size:20px;color:#222}
+        .row{display:flex;gap:12px;flex-wrap:wrap}
+        .col{flex:1 1 220px;min-width:180px}
+        label{display:block;font-weight:600;color:#444;margin-bottom:6px}
+        input[type=text], select{width:100%;padding:10px;border:1px solid #d7dbe0;border-radius:8px}
+        .actions{display:flex;gap:12px;margin-top:14px}
+        button{background:var(--primary);color:#fff;border:0;padding:10px 14px;border-radius:8px;cursor:pointer}
+        button.secondary{background:#6c757d}
+        .questions{margin-top:18px}
+        .qblock{margin-bottom:12px}
+        .small{font-size:13px;color:#666}
+        @media (max-width:600px){.row{flex-direction:column}}
+    </style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>Dynamic Product Form</h1>
+    <p class="small">Fill Enquiry No and Revision No to search an existing record, or leave blank to create new.</p>
+
+    <form id="productForm">
+      <div class="row">
+        <div class="col">
+          <label for="enquiry">Enquiry No</label>
+          <input type="text" id="enquiry" name="Enquiry No" placeholder="e.g. 101" required>
+        </div>
+        <div class="col">
+          <label for="revision">Revision No</label>
+          <input type="text" id="revision" name="Revision No" placeholder="e.g. 1" required>
+        </div>
+        <div class="col">
+          <label for="product">Product</label>
+          <select id="product" name="Product" required>
+            <option value="">Loading...</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="searchBtn" class="secondary">Search Data</button>
+        <button type="button" id="clearBtn" class="secondary">Clear</button>
+      </div>
+
+      <div id="questions" class="questions"></div>
+
+      <div style="margin-top:12px">
+        <button type="submit">Submit / Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const API_URL = 'https://script.google.com/a/macros/amaramaengineers.com/s/AKfycbylP6Nt8d2qZ6EkRxX1PPp4kL-Bar9JmlilQKhuAnh6Cp9q6R5TsCDyPVh0hTp-IhFcKw/exec '; // <-- REPLACE with your Web App URL
+
+let productData = {};
+let currentProduct = '';
+
+// Utility to create DOM elements
+function el(tag, attrs={}, children){ const e=document.createElement(tag); for(let k in attrs){ if(k==='text') e.textContent=attrs[k]; else e.setAttribute(k,attrs[k]); } if(children) children.forEach(c=>e.appendChild(c)); return e; }
+
+// Fetch product metadata
+async function loadProductData(){
+  try{
+    const resp = await fetch(API_URL + '?action=products');
+    const data = await resp.json();
+    productData = data;
+    populateProductDropdown();
+  } catch(err){
+    alert('Error loading product data: ' + err);
+    document.getElementById('product').innerHTML = '<option value="">Error</option>';
+  }
+}
+
+function populateProductDropdown(){
+  const sel = document.getElementById('product');
+  sel.innerHTML = '<option value="">-- Select Product --</option>';
+  Object.keys(productData).sort().forEach(p => {
+    const opt = document.createElement('option'); opt.value = p; opt.textContent = p; sel.appendChild(opt);
+  });
+}
+
+// Build question fields for a product
+function buildQuestionsFor(product, prefillObj){
+  const container = document.getElementById('questions'); container.innerHTML='';
+  if (!product || !productData[product]) return;
+
+  // Sort by question number prefix (questions stored as "N. text")
+  let arr = productData[product].slice();
+  arr.sort((a,b)=>{
+    const na = parseInt(a.question.split('.')[0]) || 0; const nb = parseInt(b.question.split('.')[0]) || 0; return na - nb;
+  });
+
+  arr.forEach(item => {
+    const qBlock = el('div',{class:'qblock'});
+    const label = el('label',{text:item.question});
+    qBlock.appendChild(label);
+
+    const key = item.question; // use question text as key in submission
+    if (item.answers && item.answers.length>0){
+      const s = document.createElement('select'); s.name = key; s.required = true;
+      s.innerHTML = '<option value="">-- Select --</option>';
+      item.answers.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; s.appendChild(o); });
+      if(prefillObj && prefillObj[key]) s.value = prefillObj[key];
+      qBlock.appendChild(s);
+    } else {
+      const inp = document.createElement('input'); inp.type='text'; inp.name=key; inp.required=true; inp.placeholder='Enter answer';
+      if(prefillObj && prefillObj[key]) inp.value = prefillObj[key];
+      qBlock.appendChild(inp);
+    }
+
+    container.appendChild(qBlock);
+  });
+}
+
+// Search by Enquiry + Revision
+async function searchData(){
+  const enquiry = document.getElementById('enquiry').value.trim();
+  const revision = document.getElementById('revision').value.trim();
+  if(!enquiry || !revision){ alert('Enter Enquiry No and Revision No first.'); return; }
+
+  try{
+    const resp = await fetch(API_URL + '?action=search&enquiry=' + encodeURIComponent(enquiry) + '&revision=' + encodeURIComponent(revision));
+    const obj = await resp.json();
+    if (!obj.found){ alert('No record found for this Enquiry No + Revision No'); return; }
+
+    // Prefill product and questions
+    const product = obj['Product'] || obj['Product Name'] || obj['Product Code'] || '';
+    if (product && productData[product]){
+      document.getElementById('product').value = product;
+      // Build prefill object mapping question headers to values
+      // We keep keys as they are in the sheet (headers)
+      const prefill = {};
+      for (let k in obj){ if (k !== 'found') prefill[k] = obj[k]; }
+      buildQuestionsFor(product, prefill);
+      alert('Record loaded. You can edit and Submit to update.');
+    } else {
+      alert('Record loaded but product not found in ProductData sheet. Please check ProductData.');
+    }
+  } catch(err){ alert('Search error: '+err); }
+}
+
+// Submit form data (create or update on server)
+async function submitForm(e){
+  e.preventDefault();
+  const form = document.getElementById('productForm');
+  if (!form.checkValidity()) { form.reportValidity(); return; }
+
+  const fd = new FormData(form);
+  const data = {};
+  fd.forEach((v,k)=> data[k]=v);
+
+  // Ensure the Product value is included under a standard key 'Product'
+  if (!data['Product']) data['Product'] = data['Product Name'] || data['Product'] || document.getElementById('product').value;
+
+  try{
+    const resp = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const resObj = await resp.json();
+    if (resObj.status === 'success'){
+      alert('Saved successfully');
+      form.reset();
+      document.getElementById('questions').innerHTML = '';
+    } else {
+      alert('Server response: ' + JSON.stringify(resObj));
+    }
+  } catch(err){
+    alert('Submit failed: ' + err + '. If you see a CORS or network error, try hosting this HTML on a web server (GitHub Pages) rather than opening locally.');
+  }
+}
+
+// Init
+window.addEventListener('load', async function(){
+  await loadProductData();
+  document.getElementById('product').addEventListener('change', function(){ currentProduct=this.value; buildQuestionsFor(this.value); });
+  document.getElementById('searchBtn').addEventListener('click', searchData);
+  document.getElementById('clearBtn').addEventListener('click', function(){ document.getElementById('productForm').reset(); document.getElementById('questions').innerHTML=''; });
+  document.getElementById('productForm').addEventListener('submit', submitForm);
+});
+</script>
+</body>
+</html>
